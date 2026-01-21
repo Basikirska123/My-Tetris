@@ -25,12 +25,32 @@
                 <button id="playBtn">PLAY</button>
             </div>
         </div>
-        
+
         <p id="notice"></p>
+
+        <section class="help">
+            <h2 class="help-title">Help</h2>
+            <ul class="help-list">
+                <li><b>Left / Right</b>: move Tetriminos</li>
+                <li><b>Down</b>: soft drop</li>
+                <li><b>Space</b>: hard drop</li>
+                <li><b>Up / X</b>: rotate clockwise</li>
+                <li><b>Z / Ctrl</b>: rotate counterclockwise</li>
+                <li><b>C / Shift</b>: hold</li>
+                <li><b>Esc / F1</b>: pause</li>
+            </ul>
+        </section>
+
+        <p id="legalNotice" class="legal">
+            Tetris © 1985~<span id="legalYear"></span> Tetris Holding. Tetris logos, Tetris theme song and Tetriminos are trademarks of Tetris Holding.
+            The Tetris trade dress is owned by Tetris Holding. Licensed to The Tetris Company. Tetris Game Design by Alexey Pajitnov.
+            Tetris Logo Design by Roger Dean. All Rights Reserved.
+        </p>
     </main>
-    
+
     <audio id="bgm" src="sounds/korobeiniki.mp3" loop></audio>
 
+    <script>document.getElementById('legalYear').textContent = String(new Date().getFullYear());</script> <!-- NEW -->
     <script src="utils.js"></script>
     <script src="pieces.js"></script>
     <script src="renderer.js"></script>

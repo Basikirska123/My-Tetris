@@ -19,6 +19,7 @@ const AudioSfx = (() => {
     clear: new Audio('sounds/clear.wav'),
     gameover: new Audio('sounds/gameover.wav'),
     landing: new Audio('sounds/landing.wav'),
+    wall: new Audio('sounds/wall.wav'),
   };
 
   // Set a reasonable default volume for all
@@ -71,5 +72,6 @@ const AudioSfx = (() => {
     playClear: () => play('clear'),
     playGameOver: () => play('gameover'),
     playLanding: () => play('landing'),
+    playWall: () => play('wall'),
   };
 })();

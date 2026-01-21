@@ -26,6 +26,11 @@ const Tetris = (() => {
   let lines = 0;
   let level = 0;
 
+  // Variable-goal level progress + Back-to-Back + T-Spin tracking
+  let levelProgress = 0;
+  let backToBack = false;
+  let lastMoveWasRotation = false;
+
   // pause/countdown support
   let playBtn = null;
   let countdownActive = false;
@@ -55,11 +60,11 @@ const Tetris = (() => {
 
   // start 3..2..1 countdown (used on start and resume)
   function startCountdown() {
-  countdownActive = true;
-  countdownStartTime = null;
-  running = false;
-  setNotice('3');
-}
+    countdownActive = true;
+    countdownStartTime = null;
+    running = false;
+    setNotice('3');
+  }
 
   function getNextPieceType() {
     if (bag.length === 0) bag = Utils.createBag();
@@ -125,6 +130,57 @@ const Tetris = (() => {
     );
   }
 
+  // variable-goal progress update (goal = 5 * (level+1))
+  function applyVariableGoalProgress(cleared) {
+    const lineValueTable = [0, 1, 3, 5, 8];
+    const add = lineValueTable[cleared] || 0;
+
+    levelProgress += add;
+
+    // goal depends on current level (variable goal)
+    let goal = 5 * (level + 1);
+
+    while (levelProgress >= goal) {
+      levelProgress -= goal;
+      level += 1;
+      goal = 5 * (level + 1);
+    }
+  }
+
+  // basic T-Spin 3-corner check
+  function isTSpinBasic3Corner() {
+    if (!activePiece) return false;
+    if (activePiece.type !== 'T') return false;
+    if (!lastMoveWasRotation) return false;
+
+    // Assumption (standard T): center is at (x+1, y+1) in its 3x3 matrix
+    const cx = activePiece.x + 1;
+    const cy = activePiece.y + 1;
+
+    const corners = [
+      [cx - 1, cy - 1],
+      [cx + 1, cy - 1],
+      [cx - 1, cy + 1],
+      [cx + 1, cy + 1],
+    ];
+
+    let blocked = 0;
+
+    for (let i = 0; i < corners.length; i += 1) {
+      const bx = corners[i][0];
+      const by = corners[i][1];
+
+      // Outside board counts as blocked for this basic check
+      if (bx < 0 || bx >= COLS || by < 0 || by >= ROWS) {
+        blocked += 1;
+      } else if (board[by][bx]) {
+        blocked += 1;
+      }
+    }
+
+    return blocked >= 3;
+  }
+
   // clear lines + collapse
   function clearLines() {
     let cleared = 0;
@@ -142,15 +198,50 @@ const Tetris = (() => {
 
     if (cleared > 0) {
       lines += cleared;
-
-      const pointsTable = [0, 100, 300, 500, 800];
-      score += pointsTable[cleared] * (level + 1);
-
-      level = Math.floor(lines / 10);
-      updateHUD();
-
-      AudioSfx.playClear();
     }
+
+    return cleared;
+  }
+
+  // scoring for clears with T-Spin + Back-to-Back + variable-goal level progress
+  function applyScoringAndProgress(cleared, didTSpin) {
+    if (cleared <= 0) return;
+
+    const normalPointsTable = [0, 100, 300, 500, 800];
+
+    // Basic T-Spin points
+    // 0 lines: 0
+    // 1 line: 800
+    // 2 lines: 1200
+    // 3 lines: 1600
+    const tSpinPointsTable = [0, 800, 1200, 1600, 0];
+
+    const isTetris = cleared === 4;
+    const isSpecial = (isTetris || (didTSpin && cleared > 0));
+
+    // Base points
+    let base = didTSpin ? tSpinPointsTable[cleared] : normalPointsTable[cleared];
+
+    // Back-to-Back bonus (simple 1.5x)
+    if (isSpecial && backToBack) {
+      base = Math.floor(base * 1.5);
+    }
+
+    // Apply score scaled by (level + 1)
+    score += base * (level + 1);
+
+    // Update B2B state
+    if (isSpecial) {
+      backToBack = true;
+    } else {
+      backToBack = false;
+    }
+
+    // Variable-goal progress for leveling
+    applyVariableGoalProgress(cleared);
+
+    updateHUD();
+    AudioSfx.playClear();
   }
 
   // lock-out detection (piece locks completely above visible field)
@@ -189,8 +280,7 @@ const Tetris = (() => {
     const p = createPiece(type);
 
     holdUsed = false;
-
-    // Spawn above visible area
+    lastMoveWasRotation = false;
     p.y = VISIBLE_START - 1;
 
     // Spec: I and O center; others left-middle
@@ -214,6 +304,7 @@ const Tetris = (() => {
   function lockAndSpawnNext() {
     AudioSfx.playLock();
 
+    const didTSpin = isTSpinBasic3Corner();
     mergePiece();
 
     // lock-out = game over
@@ -222,7 +313,9 @@ const Tetris = (() => {
       return;
     }
 
-    clearLines();
+    const cleared = clearLines();
+    applyScoringAndProgress(cleared, didTSpin);
+
     spawnPiece();
   }
 
@@ -232,6 +325,8 @@ const Tetris = (() => {
 
     if (!collide(activePiece.x, activePiece.y + 1, activePiece.shape)) {
       activePiece.y += 1;
+
+      lastMoveWasRotation = false;
 
       isTouching = false;
       touchStartTime = 0;
@@ -254,7 +349,7 @@ const Tetris = (() => {
 
     if (!collide(nx, activePiece.y, activePiece.shape)) {
       activePiece.x = nx;
-
+      lastMoveWasRotation = false;
       AudioSfx.playMove();
 
       // If moved away from contact, cancel lock timer
@@ -262,18 +357,21 @@ const Tetris = (() => {
         isTouching = false;
         touchStartTime = 0;
       }
+    } else {
+      AudioSfx.playWall();
     }
   }
 
   function softDrop() {
     if (!activePiece || !running || gameOver) return;
+    lastMoveWasRotation = false;
     stepDown();
     lastDropTime = performance.now();
   }
 
   function hardDrop() {
     if (!activePiece || !running || gameOver) return;
-
+    lastMoveWasRotation = false;
     while (!collide(activePiece.x, activePiece.y + 1, activePiece.shape)) {
       activePiece.y += 1;
     }
@@ -288,7 +386,7 @@ const Tetris = (() => {
   function hold() {
     if (!activePiece || !running || gameOver) return;
     if (holdUsed) return;
-
+    lastMoveWasRotation = false;
     const currentType = activePiece.type;
 
     // Reset lock delay state so swap doesn't instantly lock
@@ -401,6 +499,7 @@ const Tetris = (() => {
         activePiece.x = nx;
         activePiece.y = ny;
 
+        lastMoveWasRotation = true;
         AudioSfx.playRotate();
 
         // If rotated away from contact, cancel lock timer
@@ -412,6 +511,8 @@ const Tetris = (() => {
         return;
       }
     }
+
+    AudioSfx.playWall();
   }
 
   // toggle pause (Esc/F1)
@@ -445,7 +546,7 @@ const Tetris = (() => {
     if (!gameOver && countdownActive) {
       if (countdownStartTime === null) {
         countdownStartTime = time;
-  }
+      }
 
       const elapsed = time - countdownStartTime;
       const remaining = 3 - Math.floor(elapsed / 1000);
